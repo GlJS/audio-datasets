@@ -103,16 +103,20 @@ class TextStats():
         self.dataset = self.dataset.dropna(subset=['caption'])
 
         captions_cleaned = self.dataset['caption'].astype(str).str.lower() \
-            .str.replace('[{}]'.format(string.punctuation), '') \
-            .str.split()
+            .str.replace('[{}]'.format(string.punctuation), '')
+        
+        caption_cleaned_split = captions_cleaned.str.split()
 
-        average_words = captions_cleaned.apply(len).mean()
+        average_words = caption_cleaned_split.apply(len).mean()
+
+        average_characters = captions_cleaned.str.len().mean()
+        average_characters_std = captions_cleaned.str.len().std()
         
         # standard deviation of the number of words in the captions
-        std_dev = captions_cleaned.apply(len).std()
+        std_dev = caption_cleaned_split.apply(len).std()
 
         # Calculate number of unique words
-        unique_words = set(word for caption in captions_cleaned for word in caption)
+        unique_words = set(word for caption in caption_cleaned_split for word in caption)
         
 
         # Calculate average amount of words in caption column
@@ -121,25 +125,30 @@ class TextStats():
         print(f"Standard deviation of the number of words in the captions: {std_dev:.2f}")
         print(f"Number of unique words: {len(unique_words)}")
 
-        return len(self.dataset),average_words, std_dev, len(unique_words)
+        return len(self.dataset), average_characters, average_characters_std, len(unique_words)
 
 
 if __name__ == '__main__':
     storage_path = os.getenv("STORAGE_PATH")
-
+    dataset_path = os.getenv("DATASET_PATH")
     parser = argparse.ArgumentParser(description='Calculate metrics of audio files in a directory')
-    parser.add_argument('--dataset', type=str, help='Dataset name')
+    parser.add_argument('--dataset', type=str, default="MULTIS", help='Dataset name')
     parser.add_argument('--storage_path', type=str, default=storage_path, help="Base path")
+    parser.add_argument('--dataset_path', type=str, default=dataset_path, help="Base path")
+    
 
     args = parser.parse_args()
     print("Calculating ... ", args.dataset)
     text_out = TextStats(args.dataset)()
     audio_out = AudioStats(args.dataset, args.storage_path)()
-    dataset_length, average_words, std_dev, unique_words = text_out
+    dataset_length, average_characters, average_characters_std, unique_words = text_out
     total_count, total_duration, total_size, frequency_count, extension_count = audio_out
 
-    with open(f"{args.storage_path}/stats.csv", "a") as f:
-        f.write(f"{args.dataset}, {dataset_length}, {average_words}, {std_dev}, {unique_words}, {total_count}, {total_duration}, {total_size}, {frequency_count}, {extension_count}\n")
+    # with open(f"{args.dataset_path}/stats_words.csv", "a") as f:
+    #     f.write(f"{args.dataset}, {dataset_length}, {average_characters}, {average_characters_std}, {unique_words}\n")
+    
+    with open(f"{args.dataset_path}/stats.csv", "a") as f:
+        f.write(f"{args.dataset}, {dataset_length}, {average_characters}, {average_characters_std}, {unique_words}, {total_count}, {total_duration}, {total_size}, {frequency_count}, {extension_count}\n")
 
     # AudioStats("SoundingEarth", "/storage/data/")()
     # AudioStats("VGGSound", "/storage/data/")()    

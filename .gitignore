@@ -3,5 +3,9 @@ data
 .env
 slurm*.sh
 logs
+logs*
 slurmpy.py
 test.py
+tmp_*
+.vscode
+slurm*

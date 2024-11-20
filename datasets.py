@@ -5,6 +5,7 @@ import shutil
 import os
 import json
 from glob import glob
+from tqdm import tqdm
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -740,6 +741,275 @@ def SoundBible():
     soundbible = soundbible[["file_name", "caption", "split"]]
     return soundbible
 
+def AudiosetStrong():
+    # df = pd.read_csv(f"{dataset_path}/AudiosetStrong/train.csv")
+    # df["split"] = "train"
+    # df["file_name"] = df["file_name"].apply(lambda x: f"train/{x}")
+    # df["file_name"] = df["file_name"].str.replace(".json", ".flac")
+    # df.rename(columns={"text": "caption"}, inplace=True)
+    # df = df[["file_name", "caption", "split"]]
+
+    # df_test = pd.read_csv(f"{dataset_path}/AudiosetStrong/eval.csv")
+    # df_test["split"] = "test"
+    # df_test["file_name"] = df_test["file_name"].apply(lambda x: f"test/{x}")
+    # df_test["file_name"] = df_test["file_name"].str.replace(".json", ".flac")
+    # df_test.rename(columns={"text": "caption"}, inplace=True)
+    # df_test = df_test[["file_name", "caption", "split"]]
+
+    # df = pd.concat([df, df_test], ignore_index=True)
+
+    mid_to_display_name = pd.read_csv(f"{dataset_path}/AudiosetStrong/mid_to_display_name.tsv", sep="\t", header=None)
+    mid_to_display_name.columns = ["mid", "display_name"]
+
+    df = pd.read_csv(f"{dataset_path}/AudiosetStrong/audioset_train_strong.tsv", sep="\t")
+    train_df = df.merge(mid_to_display_name, left_on='label', right_on='mid', how='left')
+    train_df.rename(columns={"display_name": "caption"}, inplace=True)
+    train_df["file_name"] = train_df["segment_id"].apply(lambda x: f"train/{x}.flac")
+    train_df = train_df[["file_name", "caption", "start_time_seconds", "end_time_seconds"]]
+    train_df["split"] = "train"
+
+    eval_df = pd.read_csv(f"{dataset_path}/AudiosetStrong/audioset_eval_strong.tsv", sep="\t")
+    eval_df = eval_df.merge(mid_to_display_name, left_on='label', right_on='mid', how='left')
+    eval_df.rename(columns={"display_name": "caption"}, inplace=True)
+    eval_df["file_name"] = eval_df["segment_id"].apply(lambda x: f"test/{x}.flac")
+    eval_df = eval_df[["file_name", "caption", "start_time_seconds", "end_time_seconds"]]
+    eval_df["split"] = "test"
+    
+    df = pd.concat([train_df, eval_df], ignore_index=True)
+    return df 
+
+def EzAudioCaps():
+    df = pd.read_csv(f"{dataset_path}/EzAudioCaps/EzAudioCaps.csv")
+    df["split"] = "train"
+    df.rename(columns={"audio_path": "file_name"}, inplace=True)
+
+    # Filter filenames that match the pattern audioset_sl_24k/*_[number].wav
+    audioset_files = df[df['file_name'].str.contains(r'^audioset_sl_24k/.*_\d+\.wav$', regex=True)]
+    
+    # Remove _[number].wav to get base filenames
+    base_filenames = audioset_files['file_name'].str.replace(r'_\d+\.wav$', '.flac', regex=True) 
+    
+    # Replace the original filenames with base filenames
+    df.loc[audioset_files.index, 'file_name'] = base_filenames
+
+    # Load AudioCaps dataset
+    train = pd.read_csv(f"{dataset_path}/AudioCaps/train.csv")
+    train["split"] = "train"
+    val = pd.read_csv(f"{dataset_path}/AudioCaps/val.csv")
+    val["split"] = "valid" 
+    test = pd.read_csv(f"{dataset_path}/AudioCaps/test.csv")
+    test["split"] = "test"
+    audiocaps = pd.concat([train, val, test], ignore_index=True)
+
+    # Create mapping from audiocap_id to youtube_id
+    id_mapping = pd.Series(audiocaps.youtube_id.values, index=audiocaps.audiocap_id).to_dict()
+
+    # Get mask for audiocaps subset
+    audiocaps_mask = df['file_name'].str.startswith('audiocaps/audiocaps_48k/', na=False)
+    
+    # Extract IDs from filenames and map to youtube_ids
+    df.loc[audiocaps_mask, 'file_name'] = (
+        df.loc[audiocaps_mask, 'file_name']
+        .str.extract(r'audiocaps/audiocaps_48k/[^/]+/(\d+)\.wav')[0]
+        .astype(int)
+        .map(id_mapping)
+        .apply(lambda x: f"audiocaps/Y{x}.wav")
+    )
+
+    # Filter filenames that start with audioset_24k/
+    audioset_24k_mask = df['file_name'].str.startswith('audioset_24k/', na=False)
+    
+    # Remove _number_number.wav pattern from filenames and add Y prefix to filename portion
+    df.loc[audioset_24k_mask, 'file_name'] = (
+        df.loc[audioset_24k_mask, 'file_name']
+        .str.replace(r'_\d+_\d+\.wav$', '.wav', regex=True)
+        .str.replace(r'([^/]+)$', r'Y\1', regex=True)
+    )
+
+    vggsound_mask = df['file_name'].str.startswith('vggsound_24k/', na=False)
+    df.loc[vggsound_mask, 'file_name'] = df.loc[vggsound_mask, 'file_name'].str.replace(".wav", ".flac")
+
+    # Keep only the relevant columns
+    df = df[["file_name", "caption", "split"]]
+
+    return df
+
+def AudioHallucination():
+    # data/AudioHallucination/Adversarial/data/test-00000-of-00001.parquet
+    adversarial_df = pd.read_parquet(f"{dataset_path}/AudioHallucination/Adversarial/data/test-00000-of-00001.parquet")
+    # data/AudioHallucination/Popular/data/test-00000-of-00001.parquet
+    popular_df = pd.read_parquet(f"{dataset_path}/AudioHallucination/Popular/data/test-00000-of-00001.parquet")
+    # data/AudioHallucination/Random/data/test-00000-of-00001.parquet
+    random_df = pd.read_parquet(f"{dataset_path}/AudioHallucination/Random/data/test-00000-of-00001.parquet")
+
+
+    df = pd.concat([adversarial_df, popular_df, random_df], ignore_index=True)
+    df["split"] = "test"
+    df["file_name"] = df["audio_index"] + ".wav"
+    df["caption"] = df["prompt_text"] + " " + df["label"]
+
+    df = df[["file_name", "caption", "split"]]
+
+    return df
+
+def ClothoEntailment():
+    # clotho_entailment_development.csv  clotho_entailment_evaluation.csv  clotho_entailment_validation.csv
+    dev_df = pd.read_csv(f"{dataset_path}/ClothoEntailment/clotho_entailment_development.csv")
+    dev_df["split"] = "train"
+    eval_df = pd.read_csv(f"{dataset_path}/ClothoEntailment/clotho_entailment_evaluation.csv")
+    eval_df["split"] = "test"
+    val_df = pd.read_csv(f"{dataset_path}/ClothoEntailment/clotho_entailment_validation.csv")
+    val_df["split"] = "valid"
+
+    df = pd.concat([dev_df, eval_df, val_df], ignore_index=True)
+    # Melt the dataframe to create separate rows for each caption type
+    df = pd.melt(
+        df,
+        id_vars=['Audio file', 'split'],
+        value_vars=['Entailment', 'Neutral', 'Contradiction'],
+        var_name='caption_type',
+        value_name='caption_text'
+    )
+
+    # Combine caption type and text with prefix
+    df['caption'] = df['caption_type'] + ': ' + df['caption_text']
+
+    # Rename audio file column to match schema
+    df = df.rename(columns={'Audio file': 'file_name'})
+    df["file_name"] = df["split"] + "/" + df["file_name"]
+    df = df[["file_name", "caption", "split"]]
+    return df
+
+
+def ClothoMoment():
+    # data/ClothoMoment/json/recipe_train.json
+    # Load JSON data
+    # Load JSON data for each split
+    with open(f"{dataset_path}/ClothoMoment/json/recipe_train.json") as f:
+        train_data = json.load(f)
+    with open(f"{dataset_path}/ClothoMoment/json/recipe_valid.json") as f:
+        valid_data = json.load(f)
+    with open(f"{dataset_path}/ClothoMoment/json/recipe_test.json") as f:
+        test_data = json.load(f)
+
+    # Convert each to dataframe and add split column
+    train_df = pd.json_normalize(train_data, sep='_')
+    train_df["split"] = "train"
+    valid_df = pd.json_normalize(valid_data, sep='_')
+    valid_df["split"] = "valid" 
+    test_df = pd.json_normalize(test_data, sep='_')
+    test_df["split"] = "test"
+
+    # Combine all splits
+    df = pd.concat([train_df, valid_df, test_df], ignore_index=True)
+
+    # Drop rows where fg is an empty list
+    df = df[df['fg'].map(lambda x: len(x) > 0)]
+    
+    # Create rows for each foreground item
+    df = df.explode('fg')
+    
+    # Flatten fg dict columns for non-empty fg lists
+    fg_df = pd.json_normalize(df['fg'].dropna().tolist(), sep='_')
+    
+    # Add flattened fg columns back to main df
+    df = df.drop('fg', axis=1)
+    for col in fg_df.columns:
+        df[f'fg_{col}'] = fg_df[col].values
+    
+    df["fg_end_time"] = df["fg_start_time"] + df["fg_duration"]
+    df["caption"] = df["fg_caption"] + " [" + df["fg_start_time"].astype(int).astype(str) + "s, " + df["fg_end_time"].astype(int).astype(str) + "s]"
+
+    df["file_name"] = df["split"] + "/" + df["name"] + ".wav"
+
+    df = df[["file_name", "caption", "split"]]
+
+    return df
+
+def AdobeAuditionSFX():
+    df = pd.read_csv(f"{dataset_path}/AdobeAuditionSFX/data.csv")
+    df = df[["file_name", "caption", "split"]]
+    return df
+    
+def Zapsplat():
+    df = pd.read_csv(f"{dataset_path}/Zapsplat/metadata.csv")
+    df["caption"] = df["text"].apply(lambda x: f"{eval(x)[0]}")
+    df["split"] = "train"
+    df = df[["file_name", "caption", "split"]]
+    return df
+
+def ProSoundEffects():
+    # data/ProSoundEffects/CORE6-New_Files-All_Tiers.xlsx 
+    # data/ProSoundEffects/PSE_CORE6COMP-metadata.xlsx
+    df = pd.read_excel(f"{dataset_path}/ProSoundEffects/PSE_CORE6COMP-metadata.xlsx")
+
+    df.rename(columns={"Filename": "file_name", "Description": "caption"}, inplace=True)
+
+    df = df[["file_name", "caption", "split"]]
+    return df
+
+def SoundJay():
+    df = pd.read_csv(f"{dataset_path}/SoundJay/sound_descriptions.csv")
+    df.rename(columns={"filename": "file_name", "description": "caption"}, inplace=True)
+    df["split"] = "train"
+    df = df[["file_name", "caption", "split"]]
+    return df
+
+def RichDetailAudioTextSimulation():
+    # Read json as series and convert to dataframe
+    series = pd.read_json(f"{dataset_path}/RichDetailAudioTextSimulation/caption_file.json", typ='series')
+    df = pd.DataFrame({'file_name': series.index, 'caption': series.values})
+    df["file_name"] = df["file_name"] + ".wav"
+    df["split"] = "train"
+    df = df[["file_name", "caption", "split"]]
+    return df
+
+def BigSoundBank():
+    df = pd.read_csv(f"{dataset_path}/BigSoundBank/BigSoundBank.csv")
+    df["split"] = "train"
+    df = df[["file_name", "caption", "split"]]
+    return df
+
+def NonSpeech7k():
+    df_train = pd.read_csv(f"{dataset_path}/NonSpeech7k/train.csv")
+    df_train["split"] = "train"
+    df_test = pd.read_csv(f"{dataset_path}/NonSpeech7k/test.csv")
+    df_test["split"] = "test"
+    df = pd.concat([df_train, df_test], ignore_index=True)
+    df["file_name"] = df["split"] + "/" + df["Filename"]
+    df.rename(columns={"Filename": "file_name", "Classname": "caption"}, inplace=True)
+    df = df[["file_name", "caption", "split"]]
+    return df
+
+def FindSounds():
+    df = pd.read_csv(f"{dataset_path}/FindSounds/combined_data.csv")
+    df["split"] = "train"
+    df.rename(columns={"text": "caption"}, inplace=True)
+    df = df[["file_name", "caption", "split"]]
+    return df
+
+def CHiMEHome():
+    df = pd.read_csv(f"{dataset_path}/CHiMEHome/chunk_info.csv")    
+    # Read evaluation file to get list of eval files
+    eval_files = pd.read_csv(f"{dataset_path}/CHiMEHome/evaluation_chunks_raw.csv", header=None)
+    eval_files.columns = ["idx", "file"]
+    
+    # Remove .48kHz.wav from file_name to match valid file format
+    df["split"] = df["file_name"].apply(lambda x: "valid" if x[:-10] in eval_files["file"].tolist() else "train")
+    df = df[["file_name", "caption", "split"]]
+    return df
+
+def SonycUST():
+    df = pd.read_csv(f"{dataset_path}/SonycUST/chunk_info.csv")
+    return df
+
+def ESC50():
+    df = pd.read_csv(f"{dataset_path}/ESC50/esc50.csv")
+    df.rename(columns={"filename": "file_name", "category": "caption"}, inplace=True)
+    df["split"] = "train"
+    df = df[["file_name", "caption", "split"]]
+    return df
+
 if __name__ == "__main__":
     # print(Clotho())
     # print(AudioCaps())
@@ -776,7 +1046,7 @@ if __name__ == "__main__":
     # print(ACalt4())
     # print(PicoAudio())
     # print(AudioTime())
-    print(CompAR())
+    # print(CompAR())
     # print(LAION630k())
     # print(AudioAlpaca())
     # print(Audiostock())
@@ -788,3 +1058,18 @@ if __name__ == "__main__":
     # print(WeSoundEffects())
     # print(BBCSoundEffects())
     # print(SoundBible())
+    # print(AudiosetStrong())
+    # print(EzAudioCaps())
+    # print(AudioHallucination())
+    # print(ClothoEntailment())
+    # print(ClothoMoment())
+    # print(AdobeAuditionSFX())
+    # print(Zapsplat())
+    # print(ProSoundEffects())
+    # print(SoundJay())
+    # print(RichDetailAudioTextSimulation())
+    # print(BigSoundBank())
+    # print(NonSpeech7k())
+    # print(FindSounds())
+    # print(CHiMEHome())
+    print(SonycUST())

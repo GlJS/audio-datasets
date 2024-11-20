@@ -108,7 +108,7 @@ def process_dataset(dataset_name, output_folder):
 
 def main():
     parser = argparse.ArgumentParser(description="Convert datasets to FLAC and JSON files")
-    parser.add_argument("--dataset", type=str, default="Freesound", help="Name of the dataset to process")
+    parser.add_argument("--dataset", type=str, default="AdobeAuditionSFX", help="Name of the dataset to process")
     parser.add_argument("--output_folder", type=str, default=None, help="Path to the output folder")
     args = parser.parse_args()
 
