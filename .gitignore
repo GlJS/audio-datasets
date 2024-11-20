@@ -9,3 +9,4 @@ test.py
 tmp_*
 .vscode
 slurm*
+output_cats
