@@ -6,7 +6,15 @@ logs
 logs*
 slurmpy.py
 test.py
-tmp_*
 .vscode
 slurm*
 output_cats
+pca
+pca-old
+tsne
+umap
+heatmap
+heatmap2
+heatmap3
+bar
+*.pkl

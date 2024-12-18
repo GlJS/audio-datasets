@@ -23,7 +23,6 @@ def Clotho():
     clotho = pd.concat([clotho_dev, clotho_eval, clotho_val], ignore_index=True)
     clotho = pd.melt(clotho, id_vars=['file_name', 'split'], value_vars=['caption_1', 'caption_2', 'caption_3', 'caption_4', 'caption_5'],
                 var_name='caption_num', value_name='caption')
-    clotho['caption_num'] = clotho['caption_num'].str.extract('(\d+)', expand=False).astype(int)
     clotho = clotho[["file_name", "caption", "split"]]
     return clotho
 
@@ -945,6 +944,8 @@ def ProSoundEffects():
 
     df.rename(columns={"Filename": "file_name", "Description": "caption"}, inplace=True)
 
+    df["split"] = "train"
+
     df = df[["file_name", "caption", "split"]]
     return df
 
@@ -1065,11 +1066,11 @@ if __name__ == "__main__":
     # print(ClothoMoment())
     # print(AdobeAuditionSFX())
     # print(Zapsplat())
-    # print(ProSoundEffects())
+    print(ProSoundEffects())
     # print(SoundJay())
     # print(RichDetailAudioTextSimulation())
     # print(BigSoundBank())
     # print(NonSpeech7k())
     # print(FindSounds())
     # print(CHiMEHome())
-    print(SonycUST())
+    # print(SonycUST())

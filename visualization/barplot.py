@@ -1,137 +1,194 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0, 2"
-from tqdm import tqdm
-from tqdm.contrib.concurrent import process_map
-import pickle
-import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
-import pandas as pd 
-import argparse
+import seaborn as sns
 from collections import Counter
 import matplotlib.cm as cm
-import seaborn as sns
-sns.set_theme()
+import json
+import numpy as np
 
-parser = argparse.ArgumentParser(description='PCA on audio and text embeddings')
-parser.add_argument('--components', type=int, default=2, help='Number of components for dimensionality reduction')
-parser.add_argument('--audio_path', type=str, default='/root/share/clap-surveypaper/audio_embeddings', help='Path to audio embeddings')
-parser.add_argument('--text_path', type=str, default='/root/share/clap-surveypaper/text_embeddings', help='Path to text embeddings')
-parser.add_argument("--category_labels", type=bool, default=True, help="Whether to replace labels with categories")
-args = parser.parse_args()
-
-def load_audio_data(directory):
-    if directory in ['audiomatches']:
-        return []
-    elif directory == "Audioset":
-        audioset = []
-        for subdir in ['balanced_train_segments', 'eval_segments', 'unbalanced_train_segments']:
-            with open(f"{args.audio_path}/{directory}/{subdir}/0.pkl", "rb") as f:
-                data = pickle.load(f)
-                audioset.extend(data)
-        return audioset
-    if os.path.exists(f"{args.audio_path}/{directory}/0.pkl"):
-        with open(f"{args.audio_path}/{directory}/0.pkl", "rb") as f:
-            data = pickle.load(f)
-        return data
-    return []
-
-def load_text_data(directory):
-    if directory in ['audiomatches']:
-        return []
-    if os.path.exists(f"{args.text_path}/{directory}"):
-        with open(f"{args.text_path}/{directory}", "rb") as f:
-            data = pickle.load(f)
-        return data
-    return []
-
-def get_all_category_dfs():
-    dfs = []
-    for f in os.listdir("output_cats/"):
-        if f.endswith(".csv"):
-            df = pd.read_csv(f"output_cats/{f}")
-            df["file_name"] = df["file_name"].astype(str)
-            dfs.append(df)
-    df = pd.concat(dfs)
-    return df
-
-def replace_labels(x):
-    if x.startswith("/storage/data/"):
-        x = x.replace("/storage/data/", "")
-    elif x.startswith("/scratch-shared/gwijngaard/"):
-        x = x.replace("/scratch-shared/gwijngaard/", "")
-    if args.category_labels:
-        x = x.replace("data/", "").replace("dataset/", "").replace("audio/", "").replace("audios/", "")
-        x = x.replace("storage/", "").replace("gwijngaard/", "").replace("train/", "").replace("val/", "")
-        x = x.replace("test/", "")
-        if x.startswith("SoundingEarth/aporee"):
-            x = "_".join(x.split("_")[:-1])
-        x = x.replace("FSD50K.dev_", "FSD50K.dev_audio/").replace("FSD50K.eval_", "FSD50K.eval_audio/")
-    if "unbalanced_train_segments" in x:
-        x = x.replace("unbalanced_train_segments", "Audioset")
-    elif "TextToAudioGrounding" in x:
-        x = x.replace("TextToAudioGrounding", "AudioGrounding")
-    elif "balanced_train_segments" in x:
-        x = x.replace("balanced_train_segments", "Audioset")
-    elif "eval_segments" in x:
-        x = x.replace("eval_segments", "Audioset")
-    return x
-
-def process_embeddings(data_path, load_data_func):
-    directories = os.listdir(data_path)
-    all_data = list(map(load_data_func, directories))
-    all_data = [item for sublist in all_data for item in sublist]
-    labels, embeddings = zip(*all_data)
-    if args.category_labels:
-        assert all(["/" in l for l in labels])
-        labels = [replace_labels(x) for x in labels]
-        splitted = [l.split("/") for l in labels]
-        dataset = [s[0] for s in splitted]
-        labels = ["/".join(s[1:]) for s in splitted]
-        dataset_w_labels = pd.DataFrame(list(zip(dataset, labels)), columns=["dataset", "label"])
-        category_df = get_all_category_dfs()
-        new_df = dataset_w_labels.reset_index().merge(category_df, left_on=["label", "dataset"], right_on=["file_name", "dataset"], how="left")
-        new_df = new_df.drop_duplicates("index").sort_values("index")
-        new_df["label_y"] = new_df["label_y"].fillna("Unknown")
-        labels = new_df["label_y"].values
-    else:
-        labels = [replace_labels(x).split("/")[0] for x in labels]
-    return np.array(labels), np.array(embeddings)
-
-def plot_category_distribution(labels, title, ax):
-    label_counts = Counter(labels)
-    sorted_labels = sorted(label_counts.items(), key=lambda x: x[1], reverse=True)
-    categories, counts = zip(*sorted_labels)
+# Load and parse JSON to get category groupings
+def get_category_groups():
+    with open('visualization/1.json') as f:
+        data = json.load(f)
     
-    ax.bar(categories, counts, color=cm.tab20(np.arange(len(categories))))
-    ax.set_title(title)
-    ax.set_ylabel('Count')
-    ax.set_xlabel('Category')
-    ax.set_xticklabels(categories, rotation=90)
+    groups = {
+        "Natural sounds": [],
+        "Human sounds": [],
+        "Sounds of things": [],
+        "Source-ambiguous sounds": [],
+        "Animal": [], 
+        "Channel, environment and background": [],
+        "Music": [],
+        
+    }
+    
+    def get_subcategories(item):
+        subcats = [item['name']]
+        for child_id in item['child_ids']:
+            child = next(x for x in data if x['id'] == child_id)
+            subcats.extend(get_subcategories(child))
+        return subcats
+        
+    for item in data:
+        if item['name'] in groups.keys():
+            groups[item['name']] = get_subcategories(item)
+            
+    return groups
 
-audio_labels, audio_embeddings = process_embeddings(args.audio_path, load_audio_data)
-text_labels, text_embeddings = process_embeddings(args.text_path, load_text_data)
+# Load all category CSV files
+dfs = []
+for f in os.listdir("output_cats/"):
+    if f.endswith(".csv"):
+        df = pd.read_csv(f"output_cats/{f}")
+        dfs.append(df)
+df = pd.concat(dfs)
 
-print(f"Audio embeddings shape: {audio_embeddings.shape}")
-print(f"Text embeddings shape: {text_embeddings.shape}")
+# Drop rows with NA labels
+df = df.dropna(subset=['label'])
 
-# Combine all labels to ensure consistent coloring
-all_labels = np.concatenate([audio_labels, text_labels])
-label_counts = Counter(all_labels)
-sorted_labels = sorted(label_counts, key=label_counts.get, reverse=True)
-cmap = cm.get_cmap('tab20', len(sorted_labels))
-label_to_color = {label: cmap(i) for i, label in enumerate(sorted_labels)}
+# Fix "Animal " label 
+df['label'] = df['label'].replace('Animal ', 'Animal')
 
-fig, axs = plt.subplots(1, 2, figsize=(20, 8))
+df["dataset"] = df["dataset"].replace("RichDetailAudioTextSimulation", "RDATS")
 
-plot_category_distribution(audio_labels, "Audio Data Category Distribution", axs[0])
-plot_category_distribution(text_labels, "Text Data Category Distribution", axs[1])
+# Recompute counts after cleaning
+dataset_category_counts = df.groupby(['label', 'dataset']).size().unstack(fill_value=0)
 
-# Create a combined legend
-custom_lines = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=label_to_color[label], markersize=10) for label in sorted_labels]
-fig.legend(custom_lines, sorted_labels, title="Labels", loc='center right', bbox_to_anchor=(1.1, 0.5))
+# Get unique categories and datasets
+categories = df['label'].unique()
+# Get datasets without sorting by size
+datasets = dataset_category_counts.columns.tolist()
+# Get sorted datasets for legend only
+datasets_sorted = dataset_category_counts.sum().sort_values(ascending=False).index
 
-plt.tight_layout()
-is_categories = "categories" if args.category_labels else "labels"
-plt.savefig(f"pca/combined_pca_plots_{is_categories}_bar.png", dpi=150, bbox_inches='tight')
+# Get category groupings
+groups = get_category_groups()
+
+# Create mapping of categories to groups
+cat_to_group = {}
+for group, cats in groups.items():
+    for cat in cats:
+        cat_to_group[cat] = group
+
+# Calculate total counts per category
+total_counts = dataset_category_counts.sum(axis=1)
+
+# Sort categories by groups and counts within groups
+sorted_cats = []
+for group in groups:
+    group_cats = [c for c in categories if cat_to_group.get(c) == group]
+    # Sort group categories by their total counts in descending order
+    group_cats_sorted = sorted(group_cats, key=lambda x: total_counts[x], reverse=True)
+    sorted_cats.extend(group_cats_sorted)
+
+# Create extended color palette for datasets (at least 58 colors)
+colors = []
+colors.extend(plt.cm.Pastel1(np.linspace(0, 1, 9)))  # 9 pastel colors
+colors.extend(plt.cm.Pastel2(np.linspace(0, 1, 8)))  # 8 more pastel colors
+colors.extend(plt.cm.tab20(np.linspace(0, 1, 20)))   # 20 vibrant colors
+colors.extend(plt.cm.tab20b(np.linspace(0, 1, 20)))  # 20 more vibrant colors
+colors.extend(plt.cm.Set3(np.linspace(0, 1, 12)))    # 12 medium intensity colors
+colors.extend(plt.cm.Set2(np.linspace(0, 1, 8)))     # 8 medium intensity colors
+dataset_colors = {dataset: colors[i] for i, dataset in enumerate(datasets)}
+
+group_cmap = cm.get_cmap('Dark2', len(groups))
+group_colors = {group: group_cmap(i) for i, group in enumerate(groups.keys())}
+
+# Plot stacked bar chart
+fig, ax = plt.subplots(figsize=(20, 10))
+
+# Remove plot border
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.spines['left'].set_visible(False)
+ax.spines['bottom'].set_visible(False)
+
+# Plot stacked bars
+bottom = pd.Series(0, index=sorted_cats)
+for dataset in datasets:
+    if dataset is not None:  # Skip None/missing datasets
+        values = dataset_category_counts[dataset]
+        values = values[sorted_cats]  # Reorder values to match sorted categories
+        ax.bar(sorted_cats, values, bottom=bottom, label=dataset, color=dataset_colors[dataset])
+        bottom += values
+
+# Set y-axis to log scale
+ax.set_yscale('log')
+
+# Customize plot with colored x-labels
+plt.xticks(rotation=90, ha='center', fontsize=8)
+# Color the x-axis labels according to their group color
+for tick, cat in zip(ax.get_xticklabels(), sorted_cats):
+    tick.set_color(group_colors[cat_to_group[cat]])
+
+# Add group labels
+prev_group = None
+start_idx = 0
+for i, cat in enumerate(sorted_cats):
+    curr_group = cat_to_group.get(cat)
+    if curr_group != prev_group:
+        if prev_group is not None:
+            # Add group label
+            mid = (start_idx + i - 1) / 2
+            # Split long group names
+            if len(prev_group) > 10:
+                words = prev_group.split()
+                split_idx = len(words) // 2
+                label = f'{" ".join(words[:split_idx])}\n{" ".join(words[split_idx:])}'
+            else:
+                label = prev_group
+                
+            # Calculate group count
+            group_cats = [c for c in sorted_cats[start_idx:i] if cat_to_group.get(c) == prev_group]
+            group_count = dataset_category_counts[dataset_category_counts.index.isin(group_cats)].sum().sum()
+            
+            # Add group label and count
+            ax.text(mid, -0.40, label, ha='center', va='bottom', transform=ax.get_xaxis_transform(), 
+                   color=group_colors[prev_group], fontsize=11)
+            ax.text(mid, -0.41, f'n={group_count:,}', ha='center', va='top', transform=ax.get_xaxis_transform(),
+                   color=group_colors[prev_group], fontsize=9)
+            
+        start_idx = i
+        prev_group = curr_group
+
+# Add last group label
+mid = (start_idx + len(sorted_cats) - 1) / 2
+if len(prev_group) > 10:
+    words = prev_group.split()
+    split_idx = len(words) // 2
+    label = f'{" ".join(words[:split_idx])}\n{" ".join(words[split_idx:])}'
+else:
+    label = prev_group
+
+# Calculate last group count    
+group_cats = [c for c in sorted_cats[start_idx:] if cat_to_group.get(c) == prev_group]
+group_count = dataset_category_counts[dataset_category_counts.index.isin(group_cats)].sum().sum()
+
+ax.text(mid, -0.40, f'{label}', ha='center', va='bottom', transform=ax.get_xaxis_transform(),
+        color=group_colors[prev_group], fontsize=11)
+ax.text(mid, -0.41, f'n={group_count:,}', ha='center', va='top', transform=ax.get_xaxis_transform(),
+        color=group_colors[prev_group], fontsize=9)
+
+plt.xlabel('Category', labelpad=30, fontsize=12)
+plt.ylabel('Count (log scale)', fontsize=12)
+# plt.title('Category Distribution Across Datasets', fontsize=14)
+
+# Reorder legend handles and labels based on dataset sizes
+handles, labels = ax.get_legend_handles_labels()
+handles_dict = dict(zip(labels, handles))
+ordered_handles = [handles_dict[dataset] for dataset in datasets_sorted]
+ordered_labels = list(datasets_sorted)
+
+# Add legend with smaller font inside the plot
+plt.legend(ordered_handles, ordered_labels, title='Datasets (sorted by size)', 
+          loc='upper right', ncol=3, frameon=True, bbox_to_anchor=(1, 1.05),
+          fontsize=7.5, title_fontsize=12)
+
+# Adjust layout to make room for group labels, remove margins
+plt.margins(x=0)
+plt.subplots_adjust(bottom=0.3, right=0.95)  # Added right padding
+
+# Save plot without border
+plt.savefig("bar/category_distribution.png", dpi=300, bbox_inches='tight', pad_inches=0.1)  # Added pad_inches
 plt.close()
