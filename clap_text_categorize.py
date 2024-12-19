@@ -1,4 +1,5 @@
 import os
+import re
 # os.environ["HF_HOME"] = "/mnt/um-share-gijs/gijs/cache"
 # os.environ["HF_HOME"] = "/root/share/cache"
 os.environ["HF_HOME"] = "/scratch-shared/gwijngaard/cache"
@@ -12,47 +13,50 @@ import transformers
 from accelerate import Accelerator
 from tqdm import tqdm
 import pandas as pd
+import sys
 from datasets import *
+import json
+from typing import List
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument("--data", type=str, default="all")
-parser.add_argument("--speech", action=argparse.BooleanOptionalAction, default=False)
+parser.add_argument("--dataset", type=str, default="AdobeAuditionSFX")
+parser.add_argument("--full_data", default=True, action="store_true")
 args = parser.parse_args()
 
 print(args)
 
-model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
+model_id = "meta-llama/Llama-3.2-3B-Instruct"
 
-
-known_datasets = ["AnimalSpeak", "AudioCaps", "AudioCaption", "AudioDiffCaps", "Audioset", 
-                    "CAPTDURE", "Clotho", "ClothoAQA", "ClothoDetail", "DAQA", "FAVDBench", 
-                    "FSD50k", "MACS", "MULTIS", "SoundDescs", "SoundingEarth", 
-                    "TextToAudioGrounding", "WavText5K", "mAQA"]
-if args.data not in known_datasets and args.data != "all":
-    raise ValueError(f"Dataset {args.data} not found!")
-
-if args.speech:
-    categories = [
-        "Human speech",
-        "Other human sounds",
-        "Source-ambiguous sounds",
-        "Animal",
-        "Sounds of things",
-        "Music",
-        "Natural sounds",
-        "Channel, environment and background"
-    ]
+if args.full_data:
+    with open("visualization/categories200.json", "r") as f:
+        categories = json.load(f)
 else:
     categories = [
         "Human sounds",
         "Source-ambiguous sounds",
         "Animal",
         "Sounds of things",
-        "Music",
+        "Music", 
         "Natural sounds",
         "Channel, environment and background"
     ]
+
+known_datasets = ["ACalt4", "AdobeAuditionSFX", "AFAudioSet", "AnimalSpeak", "AudioAlpaca",
+                 "AudioCaps", "AudioCaption", "AudioCondition", "AudioDiffCaps", "AudioEgoVLP",
+                 "AudioHallucination", "AudioLog", "Audioset", "AudiosetStrong", "Audiostock",
+                 "AudioTime", "AutoACD", "BATON", "BBCSoundEffects", "BigSoundBank", "CAPTDURE",
+                 "CHiMEHome", "Clotho", "ClothoAQA", "ClothoChatGPTMixup", "ClothoDetail",
+                 "ClothoEntailment", "ClothoMoment", "ClothoV2GPT", "CompAR", "DAQA",
+                 "EpidemicSoundEffects", "ESC50", "EzAudioCaps", "FAVDBench", "FindSounds",
+                 "Freesound", "FreeToUseSounds", "FSD50k", "LAION630k", "LASS", "MACS",
+                 "MULTIS", "NonSpeech7k", "Paramount", "PicoAudio", "ProSoundEffects",
+                 "RichDetailAudioTextSimulation", "SonnissGameEffects", "SonycUST",
+                 "SoundBible", "SoundDescs", "SoundingEarth", "SoundJay", "SoundVECaps",
+                 "SpatialSoundQA", "Syncaps", "TextToAudioGrounding", "VGGSound",
+                 "WavCaps", "WavText5K", "WeSoundEffects", "Zapsplat", "mAQA"]
+if args.dataset not in known_datasets:
+    raise ValueError(f"Dataset {args.dataset} not found!")
 
 model = LlamaForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, device_map="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
@@ -61,6 +65,21 @@ model.config.pad_token_id = tokenizer.pad_token_id
 # resize token embeddings to match new tokenizer
 model.resize_token_embeddings(len(tokenizer))
 
+def create_structured_prompt(sentence: str, categories: List[str]) -> str:
+    categories_list = "\n".join([f"- {cat}" for cat in categories])
+    return f"""You are a helpful chatbot who helps label a dataset. Classify the following sentence into one of the AudioSet categories listed below.
+
+Sentence: "{sentence}"
+
+Available categories:
+{categories_list}
+
+Instructions:
+1. Choose exactly one category from the list above
+2. Return only the exact full category name, nothing else. Not only part of the category name.
+3. If unsure, choose the most relevant category
+
+Category:"""
 
 def load_dataset(dataset_name):
     if dataset_name in globals():
@@ -69,49 +88,29 @@ def load_dataset(dataset_name):
         raise ValueError(f"Dataset {dataset_name} not found!")
     return dataset
 
-def load_dataset_output():
-    dfs = []
-    for f in os.listdir("output_cats/"):
-        if f.endswith(".csv"):
-            df = pd.read_csv(f"output_cats/{f}")
-            dfs.append(df)
-    df = pd.concat(dfs)
-    return df
 
-# pipeline = transformers.pipeline(
-#     "text-generation",
-#     model=model_id,
-#     model_kwargs={"torch_dtype": torch.bfloat16},
-#     device_map="auto",
-# )
 
 class AudioData(Dataset):
     def __init__(self, dataset):
-        if args.data == "all":
-            self.data = load_dataset_output()
-        else:
-            self.data = load_dataset(dataset)
+        self.data = load_dataset(dataset)
         
     
     def __len__(self):
         return len(self.data)
     
     def __getitem__(self, idx):
-        if args.data == "all":
-            sentence = self.data.iloc[idx]["sentence"]
-        else:
-            sentence = self.data.iloc[idx]["caption"]
-        message = f"Classify the following sentence into one of the AudioSet top-level ontology classes:\n\nSentence: \"{sentence}\"\n\nOntology classes: {'; '.join(categories)}\n\nOnly return the 1 category and nothing else. Give the full class name. \n\nCategory:"
-        data = tokenizer(message, return_tensors="pt", padding="max_length", truncation=True, max_length=128)
-        return self.data.iloc[idx]["file_name"], sentence, data, self.data.iloc[idx]["split"]
+        sentence = self.data.iloc[idx]["caption"]
+        categories_info = "\n".join([f"- {key}" for key in categories])
+        
+        # We'll just return the raw inputs now, as we'll handle the LLM call in the main loop
+        return self.data.iloc[idx]["file_name"], sentence, categories_info, self.data.iloc[idx]["split"]
 
 def collate_fn(batch):
     file_names = [x[0] for x in batch]
     sentences = [x[1] for x in batch]
-    input_ids = torch.cat([x[2]["input_ids"] for x in batch])
-    attention_mask = torch.cat([x[2]["attention_mask"] for x in batch])
+    categories_info = batch[0][2]  # Same for all items in batch
     splits = [x[3] for x in batch]
-    return {"file_names": file_names, "sentences": sentences, "input_ids": input_ids, "attention_mask": attention_mask, "splits": splits}
+    return {"file_names": file_names, "sentences": sentences, "categories_info": categories_info, "splits": splits}
 
 terminators = [
     tokenizer.eos_token_id,
@@ -121,44 +120,51 @@ terminators = [
 
 # for dataset in tqdm(known_datasets, desc="Datasets", position=0):
 dataset_labels = []
-dataset = args.data
-loader = DataLoader(AudioData(dataset), batch_size=32, shuffle=False, num_workers=8, collate_fn=collate_fn)
+dataset = args.dataset
+loader = DataLoader(AudioData(dataset), batch_size=64, shuffle=False, num_workers=16, collate_fn=collate_fn)
 
 
 for data in tqdm(loader, desc=dataset, position=1):
     file_names = data["file_names"]
     sentences = data["sentences"]
-    input_ids = data["input_ids"].to(model.device)
-    attention_mask = data["attention_mask"].to(model.device)
     splits = data["splits"]
 
-
-
+    # Process in batches
+    batch_prompts = [create_structured_prompt(sentence, categories) for sentence in sentences]
+    inputs = tokenizer(batch_prompts, return_tensors="pt", padding=True).to(model.device)
+    
     generated_ids = model.generate(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        max_new_tokens=8,
+        input_ids=inputs["input_ids"],
+        attention_mask=inputs["attention_mask"],
+        max_new_tokens=24,
         pad_token_id=tokenizer.pad_token_id,
         eos_token_id=terminators,
         do_sample=True,
         temperature=0.6,
-        top_p=0.9
-        
+        top_p=0.9,
     )
-    generated_ids = generated_ids[:, input_ids.size(1):]
-    outputs = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
-    outputs = [o.strip() for o in outputs]
-    for idx, res in enumerate(outputs):
-        all_res = [cat for cat in categories if cat.lower() in res.lower()]
-        if len(all_res) > 0:
-            res = all_res[0]
-        else:
-            res = None
-        dataset_labels.append([dataset, file_names[idx], sentences[idx], splits[idx], res])
+    
+    outputs = tokenizer.batch_decode(generated_ids[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+    
+    for idx, output in enumerate(outputs):
+        # Clean and match the output to valid categories
+        output = output.strip()
+        # Find first occurrence of any category in the output
+        category = None
+        output_lower = output.lower()
+        min_pos = float('inf')
+        for cat in categories:
+            cat_lower = cat.lower()
+            # Check if the category appears as a whole word using word boundaries
+            for match in re.finditer(r'\b' + re.escape(cat_lower) + r'\b', output_lower):
+                pos = match.start()
+                if pos < min_pos:
+                    min_pos = pos
+                    category = cat
+        # Remove newlines from output
+        output = output.replace('\n', ' ').strip()
+        dataset_labels.append([dataset, file_names[idx], sentences[idx], splits[idx], output, category])
     
 
-df = pd.DataFrame(dataset_labels, columns=["dataset", "file_name", "sentence", "split", "label"])
-if args.speech:
-    df.to_csv(f"output_cats_speech/{dataset}.csv", index=False)
-else:
-    df.to_csv(f"output_cats/{dataset}.csv", index=False)
+df = pd.DataFrame(dataset_labels, columns=["dataset", "file_name", "sentence", "split", "output", "label"])
+df.to_csv(f"output_cats/{dataset}.csv", index=False)
