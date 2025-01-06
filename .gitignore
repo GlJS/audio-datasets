@@ -18,3 +18,5 @@ heatmap2
 heatmap3
 bar
 *.pkl
+name_maps
+tmp_*.py
