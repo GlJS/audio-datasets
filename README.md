@@ -1,6 +1,6 @@
 # Audio-Language Datasets of Scenes and Events: A Survey
 
-Corresponding paper (v1): [https://arxiv.org/abs/2407.06947](https://arxiv.org/abs/2407.06947). An updated version is currently under review.
+Pre-print: https://arxiv.org/abs/2407.06947. An updated version is currently under review.
 
 This repository contains various scripts used for creating the survey paper on audio-language datasets. Also, it includes useful splits to mitigate overlap between datasets. Furthermore, we provide a bash script to easily download all the data in `download.sh`.
 
