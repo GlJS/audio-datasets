@@ -56,10 +56,13 @@ Of course, one should be more careful when training and evaluating on datasets t
 If you use this work in some way, please cite it as follows:
 ```
 @article{wijngaard2025audio,
-  title={Audio-Language Datasets of Scenes and Events: A Survey},
   author={Wijngaard, Gijs and Formisano, Elia and Esposito, Michele and Dumontier, Michel},
-  journal={IEEE Access},
+  journal={IEEE Access}, 
+  title={Audio-Language Datasets of Scenes and Events: A Survey}, 
   year={2025},
-  publisher={IEEE}
+  volume={13},
+  number={},
+  pages={20328-20360},
+  doi={10.1109/ACCESS.2025.3534621}
 }
 ```
