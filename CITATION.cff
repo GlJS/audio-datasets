@@ -26,7 +26,8 @@ preferred-citation:
   title: "Audio-Language Datasets of Scenes and Events: A Survey"
   doi: 10.1109/ACCESS.2025.3534621
   type: article
-  pages: 20328-20360
+  start: 20328
+  end: 20360
   volume: 13
   year: 2025
   journal: IEEE Access
