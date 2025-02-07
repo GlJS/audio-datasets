@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite as below:"
+authors:
+  - family-names: Wijngaard
+    given-names: Gijs
+  - family-names: Formisano
+    given-names: Elia
+  - family-names: Esposito
+    given-names: Michele
+  - family-names: Dumontier
+    given-names: Michel
+title: "Audio-Language Datasets of Scenes and Events: A Survey"
+version: 1.0.0
+doi: 10.1109/ACCESS.2025.3534621
+date-released: '2025-02-07'
+preferred-citation:
+  authors:
+    - family-names: Wijngaard
+      given-names: Gijs
+    - family-names: Formisano
+      given-names: Elia
+    - family-names: Esposito
+      given-names: Michele
+    - family-names: Dumontier
+      given-names: Michel
+  title: "Audio-Language Datasets of Scenes and Events: A Survey"
+  doi: 10.1109/ACCESS.2025.3534621
+  type: article
+  pages: 20328-20360
+  volume: 13
+  year: 2025
+  journal: IEEE Access
+  publisher: IEEE
