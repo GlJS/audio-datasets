@@ -1,6 +1,6 @@
 # Audio-Language Datasets of Scenes and Events: A Survey
 
-Pre-print: https://arxiv.org/abs/2407.06947. An updated version is currently under review.
+Corresponding paper: https://ieeexplore.ieee.org/abstract/document/10854210/
 
 This repository contains various scripts used for creating the survey paper on audio-language datasets. Also, it includes useful splits to mitigate overlap between datasets. Furthermore, we provide a bash script to easily download all the data in `download.sh`.
 
@@ -51,3 +51,15 @@ We also share all the audio-dataset text files used in the paper on our HuggingF
 When training on one dataset, and evaluating on another dataset, the training dataset should not include the ids present in the specific file in the `splits` directory (based on 99\% similarity, we also will upload a 95% similarity split soon).
 For example, for training on AudioCaps and evaluating on FAVDBench, one should remove the audios from the AudioCaps dataset that are present in the `audiocaps_in_favdbench.csv`. 
 Of course, one should be more careful when training and evaluating on datasets that share the same origin.
+
+## Citation
+If you use this work in some way, please cite it as follows:
+```
+@article{wijngaard2025audio,
+  title={Audio-Language Datasets of Scenes and Events: A Survey},
+  author={Wijngaard, Gijs and Formisano, Elia and Esposito, Michele and Dumontier, Michel},
+  journal={IEEE Access},
+  year={2025},
+  publisher={IEEE}
+}
+```
